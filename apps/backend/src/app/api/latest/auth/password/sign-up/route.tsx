@@ -4,7 +4,16 @@ import { createSmartRouteHandler } from "@/route-handlers/smart-route-handler";
 import { runAsynchronouslyAndWaitUntil } from "@/utils/vercel";
 import { KnownErrors } from "@stackframe/stack-shared";
 import { getPasswordError } from "@stackframe/stack-shared/dist/helpers/password";
-import { adaptSchema, clientOrHigherAuthTypeSchema, emailVerificationCallbackUrlSchema, passwordSchema, signInEmailSchema, yupNumber, yupObject, yupString } from "@stackframe/stack-shared/dist/schema-fields";
+import {
+  adaptSchema,
+  clientOrHigherAuthTypeSchema,
+  emailVerificationCallbackUrlSchema,
+  passwordSchema,
+  signInEmailSchema,
+  yupNumber,
+  yupObject,
+  yupString,
+} from "@stackframe/stack-shared/dist/schema-fields";
 import { contactChannelVerificationCodeHandler } from "../../../contact-channels/verify/verification-code-handler";
 import { usersCrudHandlers } from "../../../users/crud";
 import { createMfaRequiredError } from "../../mfa/sign-in/verification-code-handler";
@@ -35,16 +44,28 @@ export const POST = createSmartRouteHandler({
       user_id: yupString().defined(),
     }).defined(),
   }),
-  async handler({ auth: { tenancy }, body: { email, password, verification_callback_url: verificationCallbackUrl } }, fullReq) {
+  async handler(
+    {
+      auth: { tenancy },
+      body: {
+        email: rawEmail,
+        password,
+        verification_callback_url: verificationCallbackUrl,
+      },
+    },
+    fullReq
+  ) {
     if (!tenancy.config.credential_enabled) {
       throw new KnownErrors.PasswordAuthenticationNotEnabled();
     }
 
-    if (!validateRedirectUrl(
-      verificationCallbackUrl,
-      tenancy.config.domains,
-      tenancy.config.allow_localhost,
-    )) {
+    if (
+      !validateRedirectUrl(
+        verificationCallbackUrl,
+        tenancy.config.domains,
+        tenancy.config.allow_localhost
+      )
+    ) {
       throw new KnownErrors.RedirectUrlNotWhitelisted();
     }
 
@@ -52,11 +73,11 @@ export const POST = createSmartRouteHandler({
     if (passwordError) {
       throw passwordError;
     }
-
     if (!tenancy.config.sign_up_enabled) {
       throw new KnownErrors.SignUpNotEnabled();
     }
 
+    const email = rawEmail.toLowerCase();
     const createdUser = await usersCrudHandlers.adminCreate({
       tenancy,
       data: {
@@ -68,20 +89,25 @@ export const POST = createSmartRouteHandler({
       allowedErrorTypes: [KnownErrors.UserWithEmailAlreadyExists],
     });
 
-    runAsynchronouslyAndWaitUntil((async () => {
-      await contactChannelVerificationCodeHandler.sendCode({
-        tenancy,
-        data: {
-          user_id: createdUser.id,
-        },
-        method: {
-          email,
-        },
-        callbackUrl: verificationCallbackUrl,
-      }, {
-        user: createdUser,
-      });
-    })());
+    runAsynchronouslyAndWaitUntil(
+      (async () => {
+        await contactChannelVerificationCodeHandler.sendCode(
+          {
+            tenancy,
+            data: {
+              user_id: createdUser.id,
+            },
+            method: {
+              email,
+            },
+            callbackUrl: verificationCallbackUrl,
+          },
+          {
+            user: createdUser,
+          }
+        );
+      })()
+    );
 
     if (createdUser.requires_totp_mfa) {
       throw await createMfaRequiredError({
